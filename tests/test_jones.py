@@ -49,17 +49,43 @@ class TestJonesFresnel:
         aoi = be.array([0.2])  # use arbitrary angle of incidence
         jones_matrix = jones_fresnel.calculate_matrix(rays, reflect=True, aoi=aoi)
 
+        # Fresnel coefficients for N = 1.5 + 0.1i, imaginary parts included
         assert jones_matrix.shape == (1, 3, 3)
-        assert_allclose(be.real(jones_matrix[0, 0, 0]), -0.20541108217641596)
-        assert_allclose(be.real(jones_matrix[0, 1, 1]), 0.19457669033430527)
+        assert_allclose(
+            jones_matrix[0, 0, 0], np.array(-0.2067569650964698 - 0.0324398037867097j)
+        )
+        assert_allclose(
+            jones_matrix[0, 1, 1], np.array(0.19578685717592503 + 0.03145354542521542j)
+        )
         assert_allclose(be.real(jones_matrix[0, 2, 2]), -1.0)
 
         # Test transmission calculation
         jones_matrix = jones_fresnel.calculate_matrix(rays, reflect=False, aoi=aoi)
         assert jones_matrix.shape == (1, 3, 3)
-        assert_allclose(be.real(jones_matrix[0, 0, 0]), 0.7945889178235841)
-        assert_allclose(be.real(jones_matrix[0, 1, 1]), 0.7963844602228702)
+        assert_allclose(
+            jones_matrix[0, 0, 0], np.array(0.7932430349035301 - 0.0324398037867097j)
+        )
+        assert_allclose(
+            jones_matrix[0, 1, 1], np.array(0.7950555930559332 - 0.032034675920251936j)
+        )
         assert_allclose(be.real(jones_matrix[0, 2, 2]), 1.0)
+
+    def test_absorbing_incident_medium_is_lossless(self, set_test_backend):
+        """The k of the incident medium is not used: beyond the critical angle,
+        a ray inside absorbing glass is totally reflected, as in lossless glass."""
+        rays = RealRays(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+        aoi = be.array([np.radians(60.0)])
+        air = materials.IdealMaterial(n=1.0)
+        matrices = [
+            jones.JonesFresnel(glass, air).calculate_matrix(rays, reflect=True, aoi=aoi)
+            for glass in (
+                materials.IdealMaterial(n=1.5, k=0.01),
+                materials.IdealMaterial(n=1.5),
+            )
+        ]
+        assert_allclose(be.abs(matrices[0][0, 0, 0]), 1.0)
+        assert_allclose(be.abs(matrices[0][0, 1, 1]), 1.0)
+        assert_allclose(matrices[0], matrices[1])
 
 
 def test_jones_polarizer_H(set_test_backend):

@@ -87,15 +87,20 @@ class JonesFresnel(BaseJones):
             be.ndarray: The calculated Jones matrix.
 
         """
-        # define local variables
-        n1 = self.material_pre.n(rays.w)
-        n2 = self.material_post.n(rays.w)
+        # the medium after the surface enters with its complex index n + ik.
+        # The incident medium is taken as lossless (real n): with its k, the
+        # angle of incidence would be complex, and beyond the critical angle
+        # the root below would take the growing branch, so |r| < 1 at TIR.
+        # Absorption along the path belongs to propagation, not the surface.
+        n1 = be.to_complex(self.material_pre.n(rays.w))
+        n2 = be.to_complex(self.material_post.n(rays.w)) + 1j * be.to_complex(
+            self.material_post.k(rays.w)
+        )
 
         # precomputations for speed
         cos_theta_i = be.cos(aoi)
         n = n2 / n1
-        radicand = be.to_complex(n**2 - be.sin(aoi) ** 2)
-        root = be.sqrt(radicand)
+        root = be.sqrt(n**2 - be.sin(aoi) ** 2)
 
         # compute fresnel coefficients & compute jones matrices
         jones_matrix = be.to_complex(be.zeros((be.size(rays.x), 3, 3)))

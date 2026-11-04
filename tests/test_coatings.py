@@ -182,9 +182,10 @@ class TestFresnelCoating:
         assert be.allclose(rays_after.i * 1.5, (1 - R) * i_before)
 
     @staticmethod
-    def _field_after(coating, k, reflect):
-        """One ray through a plane z = 0: Optiland bends it, then the coating
-        acts. Returns the polarization matrix and the outgoing direction."""
+    def _field_after(coating, k, reflect, n2=1.5):
+        """One ray through a plane z = 0 into index n2: Optiland bends it, then
+        the coating acts. Returns the polarization matrix and the outgoing
+        direction."""
         ray = rays.PolarizedRays(
             *(be.zeros(1),) * 3, *(be.array([c]) for c in k), be.ones(1), be.ones(1)
         )
@@ -193,18 +194,29 @@ class TestFresnelCoating:
             ray.reflect(nx, ny, nz)
             coating.reflect(ray, nx, ny, nz)
         else:
-            ray.refract(nx, ny, nz, 1.0, 1.5)
+            ray.refract(nx, ny, nz, 1.0, n2)
             coating.transmit(ray, nx, ny, nz)
         k_out = np.array([be.to_numpy(v)[0] for v in (ray.L, ray.M, ray.N)])
         return be.to_numpy(ray.p)[0], k_out
 
-    @pytest.mark.parametrize("reflect", [True, False])
-    def test_field_matches_closed_form(self, set_test_backend, reflect):
+    @pytest.mark.parametrize(
+        "reflect, n2",
+        [
+            (True, 1.5),
+            (True, 1.5 + 0.1j),
+            (True, 1.0 + 6.0j),  # metal-like
+            (False, 1.5),
+            (False, 1.5 + 0.1j),
+        ],
+    )
+    def test_field_matches_closed_form(self, set_test_backend, reflect, n2):
         """The 3D field after the surface is the closed-form Fresnel field, with
-        p along s x k for every wave, for any incident polarization."""
-        n1, n2 = 1.0, 1.5
+        p along s x k for every wave, for any incident polarization, for
+        lossless and absorbing media (n + ik)."""
+        n1 = 1.0
         coating = coatings.FresnelCoating(
-            materials.IdealMaterial(n=n1), materials.IdealMaterial(n=n2)
+            materials.IdealMaterial(n=n1),
+            materials.IdealMaterial(n=np.real(n2), k=np.imag(n2)),
         )
         for deg, az in [(0, 0), (20, 30), (45, 100), (70, -60)]:
             th, b = np.radians(deg), np.radians(az)
@@ -212,7 +224,7 @@ class TestFresnelCoating:
                 [np.sin(th) * np.cos(b), np.sin(th) * np.sin(b), np.cos(th)]
             )
             c1 = np.cos(th)
-            c2 = np.sqrt(1 - (n1 * np.sin(th) / n2) ** 2)
+            c2 = np.sqrt(1 - (n1 * np.sin(th) / n2) ** 2 + 0j)
             if reflect:
                 ts = (n1 * c1 - n2 * c2) / (n1 * c1 + n2 * c2)
                 tp = (n2 * c1 - n1 * c2) / (n2 * c1 + n1 * c2)
@@ -222,7 +234,7 @@ class TestFresnelCoating:
             s = np.array([-np.sin(b), np.cos(b), 0.0])
             p_in = np.cross(s, k_in)
 
-            pol, k_out = self._field_after(coating, k_in, reflect)
+            pol, k_out = self._field_after(coating, k_in, reflect, np.real(n2))
             p_out = np.cross(s, k_out)
             for E in (s, p_in, 0.6 * s + (0.2 + 0.75j) * p_in):
                 expected = ts * np.dot(E, s) * s + tp * np.dot(E, p_in) * p_out
