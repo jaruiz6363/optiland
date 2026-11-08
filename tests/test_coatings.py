@@ -470,3 +470,39 @@ class TestThinFilmCoatings:
             for th in thetas
         ]
         assert_allclose(jones[:, 1, 1], np.array(expected))
+
+    @staticmethod
+    def _glass_to_air_stack(k0):
+        stack = coatings.ThinFilmStack(
+            materials.IdealMaterial(n=1.5, k=k0), materials.IdealMaterial(n=1.0)
+        )
+        stack.add_layer_nm(materials.IdealMaterial(n=1.3), 120.0)
+        return stack
+
+    @pytest.mark.parametrize("pol", ["s", "p"])
+    def test_absorbing_incident_medium_is_lossless(self, set_test_backend, pol):
+        """The incident medium enters with its real index only: an absorbing
+        one gives the lossless result, and total reflection beyond the
+        critical angle (41.8 deg here) stays total."""
+        wl = be.array([0.6, 0.6])
+        th = be.array(np.radians([30.0, 60.0]))
+        out = self._glass_to_air_stack(0.01).compute_rtRTA_elementwise(wl, th, pol)
+        ref = self._glass_to_air_stack(0.0).compute_rtRTA_elementwise(wl, th, pol)
+        for key in ("r", "t", "R", "T", "A"):
+            assert_allclose(out[key], ref[key])
+        assert_allclose(out["R"][1], 1.0)
+        assert_allclose(out["T"][1], 0.0, atol=1e-12)
+        assert_allclose(out["A"][1], 0.0, atol=1e-12)
+
+    def test_transmit_with_absorbing_incident_medium(self, set_test_backend):
+        """The Jones transmission matrix ignores the incident medium's
+        absorption, as the stack coefficients do."""
+        th = be.array(np.radians([0.0, 20.0, 35.0]))
+        ray = rays.PolarizedRays(*(be.zeros(3),) * 6, be.ones(3), be.array([0.6] * 3))
+        jones, ref = (
+            coatings.JonesThinFilm(self._glass_to_air_stack(k0)).calculate_matrix(
+                ray, reflect=False, aoi=th
+            )
+            for k0 in (0.01, 0.0)
+        )
+        assert_allclose(jones, ref)
