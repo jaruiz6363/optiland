@@ -228,6 +228,53 @@ class TestFresnelCoating:
                 expected = ts * np.dot(E, s) * s + tp * np.dot(E, p_in) * p_out
                 np.testing.assert_allclose(pol @ E, expected, atol=1e-12)
 
+    @pytest.mark.parametrize("n2, k2", [(1.5, 0.1), (1.0, 6.0), (0.2, 3.4)])
+    def test_reflection_from_absorbing_medium(self, set_test_backend, n2, k2):
+        """The reflected field from air onto N = n + ik is the closed-form
+        Fresnel field with the complex index: |(1 - N)/(1 + N)|^2 at normal
+        incidence (0.90 for N = 1 + 6i), and r_s, r_p at oblique incidence."""
+        N = n2 + 1j * k2
+        coating = coatings.FresnelCoating(
+            materials.IdealMaterial(n=1.0), materials.IdealMaterial(n=n2, k=k2)
+        )
+        for deg in (0, 30, 60, 80):
+            th = np.radians(deg)
+            k_in = np.array([0.0, np.sin(th), np.cos(th)])
+            c1 = np.cos(th)
+            c2 = np.sqrt(1 - (np.sin(th) / N) ** 2)  # Im(N c2) > 0: decaying
+            rs = (c1 - N * c2) / (c1 + N * c2)
+            rp = (N * c1 - c2) / (N * c1 + c2)
+            s = np.array([-1.0, 0.0, 0.0])
+            p_in = np.cross(s, k_in)
+
+            pol, k_out = self._field_after(coating, k_in, reflect=True)
+            p_out = np.cross(s, k_out)
+            np.testing.assert_allclose(pol @ s, rs * s, atol=1e-12)
+            np.testing.assert_allclose(pol @ p_in, rp * p_out, atol=1e-12)
+            if deg == 0:
+                R = np.sum(np.abs(pol @ s) ** 2)
+                np.testing.assert_allclose(R, abs((1 - N) / (1 + N)) ** 2)
+
+    def test_absorbing_incident_medium_is_lossless(self, set_test_backend):
+        """The medium before the surface enters with its real index only, as in
+        the thin-film stack, and total reflection from glass into air beyond
+        the critical angle stays total."""
+        th = be.array(np.radians([0.0, 30.0, 60.0]))
+        ray = rays.PolarizedRays(*(be.zeros(3),) * 6, be.ones(3), be.array([0.6] * 3))
+        for reflect in (True, False):
+            jones, ref = (
+                coatings.FresnelCoating(
+                    materials.IdealMaterial(n=1.5, k=k1), materials.IdealMaterial(n=1.0)
+                ).jones.calculate_matrix(ray, reflect=reflect, aoi=th)
+                for k1 in (0.01, 0.0)
+            )
+            assert_allclose(jones, ref)
+        jones = coatings.FresnelCoating(
+            materials.IdealMaterial(n=1.5, k=0.01), materials.IdealMaterial(n=1.0)
+        ).jones.calculate_matrix(ray, reflect=True, aoi=th)
+        assert_allclose(be.abs(jones[2, 0, 0]), 1.0)
+        assert_allclose(be.abs(jones[2, 1, 1]), 1.0)
+
     def test_to_dict(self, set_test_backend):
         mat1 = materials.IdealMaterial(n=1.0)
         mat2 = materials.IdealMaterial(n=1.5)
